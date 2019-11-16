@@ -48,8 +48,9 @@ func fileAction(fileN int, file os.FileInfo, seenHashes map[string]struct{}, fil
 	sum := hex.EncodeToString(mh.Sum(nil))
 	hash := fmt.Sprintf("%d-%s", n, sum)
 	if _, ok := seenHashes[hash]; ok {
-		log.Printf("Moving %s to %s", file.Name(), path.Join("dups", file.Name()))
-		if err := os.Rename(file.Name(), "dups"); err != nil {
+		newPath := path.Join("dups", file.Name())
+		log.Printf("Moving %s to %s", file.Name(), newPath)
+		if err := os.Rename(file.Name(), newPath); err != nil {
 			log.Printf("Error moving file: %s because %v", file.Name(), err)
 		}
 	}
