@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 )
 
 func main() {
@@ -42,12 +43,12 @@ func fileAction(fileN int, file os.FileInfo, seenHashes map[string]struct{}, fil
 		return
 	}
 	if n != file.Size() {
-		log.Printf("Note: %s says it's %d but read %d differece of %d", file.Name(), n, file.Size(), n - file.Size())
+		log.Printf("Note: %s says it's %d but read %d differece of %d", file.Name(), n, file.Size(), n-file.Size())
 	}
 	sum := hex.EncodeToString(mh.Sum(nil))
 	hash := fmt.Sprintf("%d-%s", n, sum)
 	if _, ok := seenHashes[hash]; ok {
-		log.Printf("Moving %s to %s", file.Name(), "dups")
+		log.Printf("Moving %s to %s", file.Name(), path.Join("dups", file.Name()))
 		if err := os.Rename(file.Name(), "dups"); err != nil {
 			log.Printf("Error moving file: %s because %v", file.Name(), err)
 		}
