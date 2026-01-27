@@ -1,0 +1,30 @@
+name: Format and Fix
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    - name: Run go fmt
+      run: go fmt ./...
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "chore: format code"
+        title: "chore: format code"
+        body: "Automated changes by running `go fmt ./...`"
+        branch: "auto-format-fixes"
