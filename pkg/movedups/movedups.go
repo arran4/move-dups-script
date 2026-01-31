@@ -23,13 +23,38 @@ func Run(srcDir, destDir string) error {
 	seenHashes := map[string]struct{}{}
 	fileCount := len(entries)
 
+	fileSizes := make([]int64, len(entries))
+	sizeCounts := make(map[int64]int)
+
 	for i, entry := range entries {
-		processFile(i, entry, srcDir, destDir, seenHashes, fileCount)
+		fileSizes[i] = -1
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			log.Printf("Error getting info for %s: %v", filepath.Join(srcDir, entry.Name()), err)
+			continue
+		}
+		size := info.Size()
+		fileSizes[i] = size
+		sizeCounts[size]++
+	}
+
+	for i, entry := range entries {
+		size := fileSizes[i]
+		if size == -1 {
+			continue
+		}
+		if sizeCounts[size] <= 1 {
+			continue
+		}
+		processFile(i, entry, srcDir, destDir, seenHashes, fileCount, size)
 	}
 	return nil
 }
 
-func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashes map[string]struct{}, fileCount int) {
+func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashes map[string]struct{}, fileCount int, size int64) {
 	log.Printf("File %d of %d: %s", fileN+1, fileCount, entry.Name())
 	if entry.IsDir() {
 		return
@@ -37,14 +62,7 @@ func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashe
 
 	fullPath := filepath.Join(srcDir, entry.Name())
 
-	// Get size for hash key and verification
-	info, err := entry.Info()
-	if err != nil {
-		log.Printf("Error getting info for %s: %v", fullPath, err)
-		return
-	}
-
-	hash, err := calculateHash(fullPath, info.Size())
+	hash, err := calculateHash(fullPath, size)
 	if err != nil {
 		log.Printf("Error hashing %s: %v", fullPath, err)
 		return
