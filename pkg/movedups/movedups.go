@@ -8,7 +8,22 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 )
+
+type job struct {
+	index int
+	entry os.DirEntry
+}
+
+type result struct {
+	index int
+	entry os.DirEntry
+	hash  string
+	err   error
+	skip  bool
+}
 
 func Run(srcDir, destDir string) error {
 	entries, err := os.ReadDir(srcDir)
@@ -23,41 +38,108 @@ func Run(srcDir, destDir string) error {
 	seenHashes := map[string]struct{}{}
 	fileCount := len(entries)
 
-	for i, entry := range entries {
-		processFile(i, entry, srcDir, destDir, seenHashes, fileCount)
+	// Start workers
+	numWorkers := runtime.NumCPU()
+
+	jobs := make(chan job, numWorkers*2)
+	results := make(chan result, numWorkers*2)
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			worker(srcDir, jobs, results)
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		for i, entry := range entries {
+			jobs <- job{index: i, entry: entry}
+		}
+		close(jobs)
+	}()
+
+	// Wait for workers to finish and close results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results in order
+	nextIndex := 0
+	resultBuffer := make(map[int]result)
+
+	for res := range results {
+		resultBuffer[res.index] = res
+
+		for {
+			if r, ok := resultBuffer[nextIndex]; ok {
+				delete(resultBuffer, nextIndex)
+				processResult(r, srcDir, destDir, seenHashes, fileCount)
+				nextIndex++
+			} else {
+				break
+			}
+		}
 	}
 	return nil
 }
 
-func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashes map[string]struct{}, fileCount int) {
-	log.Printf("File %d of %d: %s", fileN+1, fileCount, entry.Name())
-	if entry.IsDir() {
+func worker(srcDir string, jobs <-chan job, results chan<- result) {
+	for j := range jobs {
+		res := result{index: j.index, entry: j.entry}
+
+		if j.entry.IsDir() {
+			res.skip = true
+			results <- res
+			continue
+		}
+
+		fullPath := filepath.Join(srcDir, j.entry.Name())
+
+		// Get size for hash key and verification
+		info, err := j.entry.Info()
+		if err != nil {
+			res.err = fmt.Errorf("getting info for %s: %w", fullPath, err)
+			results <- res
+			continue
+		}
+
+		hash, err := calculateHash(fullPath, info.Size())
+		if err != nil {
+			res.err = fmt.Errorf("hashing %s: %w", fullPath, err)
+			results <- res
+			continue
+		}
+
+		res.hash = hash
+		results <- res
+	}
+}
+
+func processResult(r result, srcDir, destDir string, seenHashes map[string]struct{}, fileCount int) {
+	log.Printf("File %d of %d: %s", r.index+1, fileCount, r.entry.Name())
+
+	if r.skip {
 		return
 	}
 
-	fullPath := filepath.Join(srcDir, entry.Name())
-
-	// Get size for hash key and verification
-	info, err := entry.Info()
-	if err != nil {
-		log.Printf("Error getting info for %s: %v", fullPath, err)
+	if r.err != nil {
+		log.Printf("Error: %v", r.err)
 		return
 	}
 
-	hash, err := calculateHash(fullPath, info.Size())
-	if err != nil {
-		log.Printf("Error hashing %s: %v", fullPath, err)
-		return
-	}
+	fullPath := filepath.Join(srcDir, r.entry.Name())
 
-	if _, ok := seenHashes[hash]; ok {
-		newPath := filepath.Join(destDir, entry.Name())
+	if _, ok := seenHashes[r.hash]; ok {
+		newPath := filepath.Join(destDir, r.entry.Name())
 		log.Printf("Moving %s to %s", fullPath, newPath)
 		if err := os.Rename(fullPath, newPath); err != nil {
 			log.Printf("Error moving file: %s because %v", fullPath, err)
 		}
 	} else {
-		seenHashes[hash] = struct{}{}
+		seenHashes[r.hash] = struct{}{}
 	}
 }
 
