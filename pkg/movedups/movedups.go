@@ -2,7 +2,6 @@ package movedups
 
 import (
 	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +19,7 @@ func Run(srcDir, destDir string) error {
 		return fmt.Errorf("creating destination directory: %w", err)
 	}
 
-	seenHashes := map[string]struct{}{}
+	seenHashes := map[fileKey]struct{}{}
 	fileCount := len(entries)
 
 	fileSizes := make([]int64, len(entries))
@@ -54,7 +53,12 @@ func Run(srcDir, destDir string) error {
 	return nil
 }
 
-func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashes map[string]struct{}, fileCount int, size int64) {
+type fileKey struct {
+	size int64
+	hash [16]byte
+}
+
+func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashes map[fileKey]struct{}, fileCount int, size int64) {
 	log.Printf("File %d of %d: %s", fileN+1, fileCount, entry.Name())
 	if entry.IsDir() {
 		return
@@ -79,23 +83,25 @@ func processFile(fileN int, entry os.DirEntry, srcDir, destDir string, seenHashe
 	}
 }
 
-func calculateHash(path string, expectedSize int64) (string, error) {
+func calculateHash(path string, expectedSize int64) (fileKey, error) {
 	fh, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return fileKey{}, err
 	}
 	defer fh.Close()
 
 	mh := md5.New()
 	n, err := io.Copy(mh, fh)
 	if err != nil {
-		return "", err
+		return fileKey{}, err
 	}
 
 	if n != expectedSize {
 		log.Printf("Note: %s says it's %d but read %d difference of %d", path, n, expectedSize, n-expectedSize)
 	}
 
-	sum := hex.EncodeToString(mh.Sum(nil))
-	return fmt.Sprintf("%d-%s", n, sum), nil
+	var k fileKey
+	k.size = n
+	mh.Sum(k.hash[:0])
+	return k, nil
 }
