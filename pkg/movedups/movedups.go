@@ -39,6 +39,12 @@ import (
 	"path/filepath"
 )
 
+// Run is a subcommand `movedups`
+//
+// Flags:
+//
+//	srcDir:  --src -src  (default: ".")    Source directory to scan for duplicates
+//	destDir: --dest -dest (default: "dups") Destination directory to move duplicates to
 func Run(srcDir, destDir string) error {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
